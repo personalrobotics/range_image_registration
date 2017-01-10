@@ -261,8 +261,7 @@ def format_coord_gen(img):
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
     try:
-        range_reg = RangeImageRegistration('/home/bokorn/src/range_image_registration' \
-            + '/src/pr-ordata/data/objects/fuze_bottle.kinbody.xml')
+        range_reg = RangeImageRegistration('../../pr-ordata/data/objects/fuze_bottle.kinbody.xml')
         
         axis = np.array([1, 0, 0])
         angle = -np.pi/3
