@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package>
+  <name>range_reg</name>
+  <version>0.1.0</version>
+  <description>Registration algorithm for range images to known model using offscreen renderer</description>
+
+  <maintainer email="bokorn@andrew.cmu.edu">Brian Okorn</maintainer>
+  <license>BSD</license>
+
+  <author email="bokorn@andrew.cmu.edu">Brian Okorn</author>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>roscpp</build_depend>
+  <build_depend>rospy</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>offscreen_render</build_depend>
+
+  <run_depend>message_runtime</run_depend>
+  <run_depend>roscpp</run_depend>
+  <run_depend>rospy</run_depend>
+  <run_depend>std_msgs</run_depend>
+  <run_depend>sensor_msgs</run_depend>
+  <run_depend>offscreen_render</run_depend>
+
+</package>
