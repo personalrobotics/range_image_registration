@@ -119,8 +119,14 @@ class RangeImageRegistration(object):
                     b[3:6] += dr[j,k]*(np.dot(r_hat.T, n_hat))*d
         
         tw = np.dot(np.linalg.inv(A),-b)
-        print tw
-        return tw
+        t = tw[0:3]
+        R = cv2.Rodrigues(tw[3:6])
+        print t
+        print R
+        trans = np.zeros((4,4))
+        trans[0:3, 0:3] = R
+        trans[0:3,3] = t.flatten()
+        return trans
 #        axis = np.array([1, 0, 0])
 #        angle = -np.pi/2
 #        T_model = openravepy.matrixFromAxisAngle(axis*angle)
@@ -213,8 +219,16 @@ class RangeImageRegistration(object):
                 A[k,j] = A[j,k]
 
         tw = np.dot(np.linalg.inv(A),b)
-        print tw
-        return tw
+        
+        t = tw[0:3]
+        R, _ = cv2.Rodrigues(tw[3:6])
+        print t
+        print R
+        trans = np.zeros((4,4))
+        trans[0:3, 0:3] = R
+        trans[0:3,3] = t.flatten()
+        return trans
+        
 #        axis = np.array([1, 0, 0])
 #        angle = -np.pi/2
 #        T_model = openravepy.matrixFromAxisAngle(axis*angle)
@@ -290,7 +304,9 @@ if __name__ == "__main__":
         ax.imshow(depth_img_rot[:,:,2])
         plt.show()
     
-        range_reg(depth_img_rot)
+        trans = range_reg(depth_img_rot)
+        
+        
                 
     finally:
         print 'Destroy'
