@@ -10,6 +10,22 @@ import numpy as np
 import math
 import cv2
 
+def format_coord_gen(img):
+    numrows = img.shape[0]
+    numcols = img.shape[1]
+
+    def format_coord(x, y):      
+        col = int(x+0.5)
+        row = int(y+0.5)
+
+        if col>=0 and col<numcols and row>=0 and row<numrows:
+            val = img[row,col]
+            return 'x=%1.4f, y=%1.4f, [%1.4f]'%(x, y, val)
+        else:
+            return 'x=%1.4f, y=%1.4f'%(x, y)
+    
+    return format_coord
+
 class RangeImageRegistration(object):
     def __init__(self, model_xml_filename,
                  fx = 529, fy = 525,
@@ -217,7 +233,7 @@ class RangeImageRegistration(object):
     def displayResults(self, sensor_img, tw):
         model_image = self.getDepthImage()
         # Converts instantaneous velocities to transform
-        trans = self.vector2Trans(tw)        
+        trans = self.vector2Trans(tw)    
         # Generates new image using tranform to match sensor image
         trans_image = self.getDepthImage(trans)
         # Extract depth data        
@@ -235,18 +251,23 @@ class RangeImageRegistration(object):
         ax = fig.add_subplot(321)
         ax.imshow(sensor_z)
         ax.set_title('Sensor Data')
+        ax.axis('off')
         ax = fig.add_subplot(322)
         ax.imshow(model_z)
         ax.set_title('Model Data')
+        ax.axis('off')
         ax = fig.add_subplot(323)
         ax.imshow(trans_z)
         ax.set_title('Transformed Data')
+        ax.axis('off')
         ax = fig.add_subplot(324)
         ax.imshow(offset_mask)
         ax.set_title('Sensor Model Offset')
+        ax.axis('off')
         ax = fig.add_subplot(325)
         ax.imshow(err)
         ax.set_title('Transform Error')
+        ax.axis('off')
         #ax = fig.add_subplot(326)
         #ax.imshow(dZ_image)
         plt.show()
@@ -276,21 +297,6 @@ class RangeImageRegistration(object):
         self.sensor.SimulationStep(0.01)        
     
     
-def format_coord_gen(img):
-    numrows = img.shape[0]
-    numcols = img.shape[1]
-
-    def format_coord(x, y):      
-        col = int(x+0.5)
-        row = int(y+0.5)
-
-        if col>=0 and col<numcols and row>=0 and row<numrows:
-            val = img[row,col]
-            return 'x=%1.4f, y=%1.4f, [%1.4f]'%(x, y, val)
-        else:
-            return 'x=%1.4f, y=%1.4f'%(x, y)
-    
-    return format_coord
 
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
@@ -320,7 +326,7 @@ if __name__ == "__main__":
         tw_2 = range_reg.section2Equation(sensor_img)
         range_reg.displayResults(sensor_img, tw_2)
         
-        tw_3 = range_reg.section2Equation(sensor_img)
+        tw_3 = range_reg.section3Equation(sensor_img)
         range_reg.displayResults(sensor_img, tw_3)
         
                 
