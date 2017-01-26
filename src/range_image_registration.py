@@ -50,192 +50,212 @@ class RangeImageRegistration(object):
         self.sensor.Configure(openravepy.Sensor.ConfigureCommand.PowerOff)
         self.sensor.Configure(openravepy.Sensor.ConfigureCommand.RenderDataOff)
         self.env.Destroy()
-    
-    def A3_reg(self, sensor_img):
+
+    def section2Equation(self, sensor_img):
         self.sensor.SimulationStep(0.01)        
         data = self.sensor.GetSensorData(openravepy.Sensor.Type.Laser)
         depth_data = data.intensity
+        
+        # Depth image is [h,w,3] with the channels being X,Y,Z
         depth_image = np.reshape(depth_data, [self.image_dim[1],self.image_dim[0],3])
 
+        # Actual range image using norm of points
         range_image = np.sqrt(np.sum(np.square(depth_image), axis=2))
-        sensor_range_img = np.sqrt(np.sum(np.square(sensor_img), axis=2))
-        
+
+        # Setting all background points to NaN for filtering purposes
         z_image = depth_image[:,:,2]
         z_image[range_image == 0] = np.NaN
         range_image[range_image == 0] = np.NaN
         depth_image[:,:,2] = z_image
 
-        
+        # X-Y Image derivatives
         dxdi = cv2.Sobel(depth_image[:,:,0],cv2.CV_64F,1,0,ksize=5)
         dydj = cv2.Sobel(depth_image[:,:,1],cv2.CV_64F,0,1,ksize=5)        
 
+        # Z Image derivatives
         dzdi = cv2.Sobel(depth_image[:,:,2],cv2.CV_64F,1,0,ksize=5)
         dzdj = cv2.Sobel(depth_image[:,:,2],cv2.CV_64F,0,1,ksize=5)  
-        
-        drdi = cv2.Sobel(range_image,cv2.CV_64F,1,0,ksize=5)
-        drdj = cv2.Sobel(range_image,cv2.CV_64F,0,1,ksize=5)
 
+        # Approximations of dZ/dX and dZ/dY
+        #### Possible source of error ####
+        p_image = np.divide(dzdi, dxdi)
+        q_image = np.divide(dzdj, dydj)
+
+        # dZ/dt
+        #### Possible source of error ####
+        dZ_image = sensor_img[:,:,2] - depth_image[:,:,2]
+        
+        
+        A = np.zeros((6,6))
+        b = np.zeros((6,1))      
+        for j in range(self.image_dim[1]):
+            for k in range(self.image_dim[0]):
+                # R in math
+                pt = np.reshape(depth_image[j,k,:], (3,1))
+                X = pt[0]
+                Y = pt[1]
+                Z = pt[2]
+                
+                # Individual componants of p_i, q_i, and (Zt)_i [page 6]
+                p = p_image[j,k]
+                q = q_image[j,k]
+                dZ = dZ_image[j,k]
+                
+                if(not (np.isnan(p) or np.isnan(q))):
+                    # Described on page 5                    
+                    r = -Y - q*Z
+                    s = X + p*Z
+                    t = q*X - p*Y
+                    
+                    # Described on page 6
+                    c = np.reshape(np.array([p, q, -1, r, s, t]),(6,1))
+                    A += np.dot(c, c.T)
+                    b += dZ*c
+
+        # t = [U,V,W], omega = [A,B,C]
+        # tw = [U,V,W,A,B,C] = [t_x, t_y, t_z, r_x, r_y, r_z]
+        #### I think this maps to [y,x,z,...] ####
+        #### Possible source of error ####
+        tw = np.linalg.solve(A,b)
+        return tw
+
+    def section3Equation(self, sensor_img):
+        self.sensor.SimulationStep(0.01)        
+        data = self.sensor.GetSensorData(openravepy.Sensor.Type.Laser)
+        depth_data = data.intensity
+    
+        # Depth image is [h,w,3] with the channels being X,Y,Z
+        depth_image = np.reshape(depth_data, [self.image_dim[1],self.image_dim[0],3])
+        [h,w,d] = depth_image.shape
+        
+        # Actual range image using norm of points
+        range_image = np.sqrt(np.sum(np.square(depth_image), axis=2))
+        sensor_range_img = np.sqrt(np.sum(np.square(sensor_img), axis=2))
+
+        # Setting all background points to NaN for filtering purposes
+        z_image = depth_image[:,:,2]
+        z_image[range_image == 0] = np.NaN
+        range_image[range_image == 0] = np.NaN
+        depth_image[:,:,2] = z_image
+
+        # Normalized range vectors described in page 9
         r_hat_image = depth_image
         r_hat_image[:,:,0] = np.divide(r_hat_image[:,:,0], range_image)
         r_hat_image[:,:,1] = np.divide(r_hat_image[:,:,1], range_image)
         r_hat_image[:,:,2] = np.divide(r_hat_image[:,:,2], range_image)
 
-        n_d_image = np.dstack((-dzdi,-dzdj,depth_image[:,:,2]))
-        #n_d_image = np.dstack((drdi,drdj,range_image))
+        # X-Y Image derivatives
+        dxdi = cv2.Sobel(depth_image[:,:,0],cv2.CV_64F,1,0,ksize=5)
+        dydj = cv2.Sobel(depth_image[:,:,1],cv2.CV_64F,0,1,ksize=5)        
+
+        # Z Image derivatives
+        dzdi = cv2.Sobel(depth_image[:,:,2],cv2.CV_64F,1,0,ksize=5)
+        dzdj = cv2.Sobel(depth_image[:,:,2],cv2.CV_64F,0,1,ksize=5)  
+
+        # Approximations of dZ/dX and dZ/dY
+        #### Possible source of error ####
+        # dXdZ = np.divide(dxdi, dzdi)
+        # dYdZ = np.divide(dydj, dzdj)
+
+        # Surface normal according to A.7 [page 12]
+        #### Doesn't seem right to have z component as Z ####
+        #### Possible source of error ####        
+        # n_d_image = np.dstack((-dzdi,-dzdj,-depth_image[:,:,2]))
+        # Surface normal according http://stackoverflow.com/questions/34644101/calculate-surface-normals-from-depth-image-using-neighboring-pixels-cross-produc      
+        n_d_image = np.dstack((-dzdi,-dzdj,np.ones([h,w,1])))
+        # Surface normal using dX/dZ and dY/dZ
+        # n_d_image = np.dstack((dXdZ,dYdZ,np.ones([h,w,1])))
+        # Normalized surface normal
         n_hat_image = n_d_image
         n_mag = np.sqrt(np.sum(np.square(n_d_image), axis=2))
         n_hat_image[:,:,0] = np.divide(n_hat_image[:,:,0], n_mag)
         n_hat_image[:,:,1] = np.divide(n_hat_image[:,:,1], n_mag)
         n_hat_image[:,:,2] = np.divide(n_hat_image[:,:,2], n_mag)
 
-        dr = range_image - sensor_range_img
+        # d range/dt
+        #### Possible source of error ####
+        dr = sensor_range_img - range_image
         
-        #nnT = np.zeros((3,3))
-        #ndT = np.zeros((3,3))
-        #dnT = np.zeros((3,3))
-        #ddT = np.zeros((3,3))
-        #Rrnn = np.zeros((3,1))
-        #Rrnd = np.zeros((3,1))
         A = np.zeros((6,6))
         b = np.zeros((6,1))
         for j in range(self.image_dim[1]):
             for k in range(self.image_dim[0]):
+                # R in math
                 pt = np.reshape(depth_image[j,k,:], (3,1))
+                # n_hat in the math
                 n_hat = np.reshape(n_hat_image[j,k,:], (3,1))
+                # r_hat in the math
                 r_hat = np.reshape(r_hat_image[j,k,:], (3,1))
-                if(not (any(np.isnan(pt)) or any(np.isnan(n_hat)) or any(np.isnan(r_hat)))):
-                    d = np.cross(pt,n_hat, axis=0)
-                    #nnT = nnT + np.dot(n_hat, n_hat.T)
-                    A[0:3,0:3] += np.dot(n_hat, n_hat.T)
-                    #ndT = ndT + np.dot(n_hat, d.T)
-                    A[0:3,3:6] += np.dot(n_hat, d.T)
-                    #dnT = dnT + np.dot(d, n_hat.T)
-                    A[3:6,0:3] += np.dot(d, n_hat.T)
-                    #ddT = ddT + np.dot(d, d.T)
-                    A[3:6,3:6] += np.dot(d, d.T)
-                    #Rrnn = Rrnn + dr[j,k]*(np.dot(r_hat.T, n_hat))*n_hat
-                    b[0:3] += dr[j,k]*(np.dot(r_hat.T, n_hat))*n_hat
-                    #Rrnd = Rrnd + dr[j,k]*(np.dot(r_hat.T, n_hat))*d
-                    b[3:6] += dr[j,k]*(np.dot(r_hat.T, n_hat))*d
-        
-        tw = np.dot(np.linalg.inv(A),-b)
-        t = tw[0:3]
-        R = cv2.Rodrigues(tw[3:6])
-        print t
-        print R
-        trans = np.zeros((4,4))
-        trans[0:3, 0:3] = R
-        trans[0:3,3] = t.flatten()
-        return trans
-#        axis = np.array([1, 0, 0])
-#        angle = -np.pi/2
-#        T_model = openravepy.matrixFromAxisAngle(axis*angle)
-#        T_model[0:3,3] = np.array([0,-.1,0.5]);
-#        self.model.SetTransform(np.dot(T_model, self.model.GetTransform()))
-#        self.sensor.SimulationStep(0.01)
-#        
-    def __call__(self, sensor_img):
-        self.sensor.SimulationStep(0.01)        
-        data = self.sensor.GetSensorData(openravepy.Sensor.Type.Laser)
-        depth_data = data.intensity
-        depth_image = np.reshape(depth_data, [self.image_dim[1],self.image_dim[0],3])
-
-        range_image = np.sqrt(np.sum(np.square(depth_image), axis=2))
-        
-        z_image = depth_image[:,:,2]
-        z_image[range_image == 0] = np.NaN
-        range_image[range_image == 0] = np.NaN
-        depth_image[:,:,2] = z_image
-
-        dxdi = cv2.Sobel(depth_image[:,:,0],cv2.CV_64F,1,0,ksize=5)
-        dydj = cv2.Sobel(depth_image[:,:,1],cv2.CV_64F,0,1,ksize=5)        
-
-        dzdi = cv2.Sobel(depth_image[:,:,2],cv2.CV_64F,1,0,ksize=5)
-        dzdj = cv2.Sobel(depth_image[:,:,2],cv2.CV_64F,0,1,ksize=5)  
-
-        drdi = cv2.Sobel(range_image,cv2.CV_64F,1,0,ksize=5)
-        drdj = cv2.Sobel(range_image,cv2.CV_64F,0,1,ksize=5)
-
-        p_image = np.divide(dzdi, dxdi)
-        q_image = np.divide(dzdj, dydj)
-
-        #p = np.divide(drdi, dxdi)
-        #q = np.divide(drdi, dydi)
-
-        dZ_image = sensor_img[:,:,2] - depth_image[:,:,2]
-        
-        A = np.zeros((6,6))
-        b = np.zeros((6,1))
-        for j in range(self.image_dim[1]):
-            for k in range(self.image_dim[0]):
-                pt = np.reshape(depth_image[j,k,:], (3,1))
-                X = pt[0]
-                Y = pt[1]
-                Z = pt[2]
-                p = p_image[j,k]
-                q = q_image[j,k]
-                dZ = dZ_image[j,k]
                 
-                if(not (np.isnan(p) or np.isnan(q))):
-                    r = -Y - q*Z
-                    s = X + p*Z
-                    t = q*X - p*Y
-                    A[0,0] += p*p
-                    A[0,1] += p*q
-                    A[0,2] += -p
-                    A[0,3] += p*r
-                    A[0,4] += p*s
-                    A[0,5] += p*t
-                    
-                    A[1,1] += q*q
-                    A[1,2] += -q
-                    A[1,3] += q*r
-                    A[1,4] += q*s
-                    A[1,5] += q*t
-
-                    A[2,2] += 1
-                    A[2,3] += -r
-                    A[2,4] += -s
-                    A[2,5] += -t
-
-                    A[3,3] += r*r
-                    A[3,4] += r*s
-                    A[3,5] += r*t
-
-                    A[4,4] += s*s
-                    A[4,5] += s*t
-
-                    A[5,5] += t*t
-                    
-                    b[0] += p*dZ
-                    b[1] += q*dZ
-                    b[2] += -dZ
-                    b[3] += r*dZ
-                    b[4] += s*dZ
-                    b[5] += t*dZ
-                    
-        for j in range(6):
-            for k in range(j+1,6):
-                A[k,j] = A[j,k]
-
-        tw = np.dot(np.linalg.inv(A),b)
+                if(not (any(np.isnan(pt)) or any(np.isnan(n_hat)) or any(np.isnan(r_hat)))):
+                    # d from page 10             
+                    d = np.cross(pt,n_hat, axis=0)
+                    # Reorginization of integrals on page 10 into matrix form
+                    #### Possible source of error ####
+                    A[0:3,0:3] += np.dot(n_hat, n_hat.T)
+                    A[0:3,3:6] += np.dot(n_hat, d.T)
+                    A[3:6,0:3] += np.dot(d, n_hat.T)
+                    A[3:6,3:6] += np.dot(d, d.T)
+                    b[0:3] += -dr[j,k]*(np.dot(r_hat.T, n_hat))*n_hat
+                    b[3:6] += -dr[j,k]*(np.dot(r_hat.T, n_hat))*d        
         
+        # t = [U,V,W], omega = [A,B,C]
+        # tw = [U,V,W,A,B,C] = [t_x, t_y, t_z, r_x, r_y, r_z]
+        #### I think this maps to [y,x,z,...] ####
+        #### Possible source of error ####
+        tw = np.linalg.solve(A,b)
+        return tw
+
+    def vector2Trans(self, tw):
         t = tw[0:3]
         R, _ = cv2.Rodrigues(tw[3:6])
-        print t
-        print R
-        trans = np.zeros((4,4))
+        trans = np.eye(4)
         trans[0:3, 0:3] = R
         trans[0:3,3] = t.flatten()
         return trans
         
-#        axis = np.array([1, 0, 0])
-#        angle = -np.pi/2
-#        T_model = openravepy.matrixFromAxisAngle(axis*angle)
-#        T_model[0:3,3] = np.array([0,-.1,0.5]);
-#        self.model.SetTransform(np.dot(T_model, self.model.GetTransform()))
-#        self.sensor.SimulationStep(0.01)
-#        
+    def displayResults(self, sensor_img, tw):
+        model_image = self.getDepthImage()
+        # Converts instantaneous velocities to transform
+        trans = self.vector2Trans(tw)        
+        # Generates new image using tranform to match sensor image
+        trans_image = self.getDepthImage(trans)
+        # Extract depth data        
+        model_z = model_image[:,:,2]
+        sensor_z = sensor_img[:,:,2]
+        trans_z = trans_image[:,:,2]
+        # Compare transformed image and sensor image
+        err = sensor_z - trans_z
+        err_mask = np.logical_and(sensor_z != 0, trans_z != 0)
+        offset_mask = np.logical_xor(sensor_z != 0, model_z != 0)
+        
+        print 'Mean Error:', np.sum(err[err_mask].flatten())/np.sum(err_mask.flatten())
+        
+        fig = plt.figure()
+        ax = fig.add_subplot(321)
+        ax.imshow(sensor_z)
+        ax.set_title('Sensor Data')
+        ax = fig.add_subplot(322)
+        ax.imshow(model_z)
+        ax.set_title('Model Data')
+        ax = fig.add_subplot(323)
+        ax.imshow(trans_z)
+        ax.set_title('Transformed Data')
+        ax = fig.add_subplot(324)
+        ax.imshow(offset_mask)
+        ax.set_title('Sensor Model Offset')
+        ax = fig.add_subplot(325)
+        ax.imshow(err)
+        ax.set_title('Transform Error')
+        #ax = fig.add_subplot(326)
+        #ax.imshow(dZ_image)
+        plt.show()
+        
+    def __call__(self, sensor_img):
+        tw =  self.section3Equation(sensor_img)
+        trans = self.vector2Trans(tw)
+        return trans
+    
 
     def getDepthImage(self, T=None):
         if(T is not None):
@@ -275,37 +295,33 @@ def format_coord_gen(img):
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
     try:
+        # Initialize Range Image Registration with Fuze bottle        
         range_reg = RangeImageRegistration('../../pr-ordata/data/objects/fuze_bottle.kinbody.xml')
         
-        axis = np.array([1, 0, 0])
-        angle = -np.pi/3
-        T_model = np.eye(4)
-
+        # Set fuse bottle transform
         axis = np.array([1, 0, 0])
         angle = -np.pi/2
         T_model = openravepy.matrixFromAxisAngle(axis*angle)
         T_model[0:3,3] = np.array([0,-.1,0.5])
-        
         range_reg.setTransform(T_model)
-            
+
+        # Create small translation for sensor image        
         axis = np.array([0, 0, 1])
         angle = -np.pi/20
-        T_model = openravepy.matrixFromAxisAngle(axis*angle)
+        #T_model = openravepy.matrixFromAxisAngle(axis*angle)
         T_model = np.eye(4)
-        T_model[0:3,3] = np.array([0,-.05,0])
+        #t_model = np.array([0,-.002,0])
+        t_model = np.array([-.001,0,0])
+        T_model[0:3,3] = t_model
 
-        depth_img_orig = range_reg.getDepthImage()
-        depth_img_rot = range_reg.getDepthImage(T_model)
+        # Generate synthetic range image using local transform
+        sensor_img = range_reg.getDepthImage(T_model)
             
-        fig = plt.figure()    
-        ax = fig.add_subplot(211)
-        ax.imshow(depth_img_orig[:,:,2])
-        ax = fig.add_subplot(212)
-        ax.imshow(depth_img_rot[:,:,2])
-        plt.show()
-    
-        trans = range_reg(depth_img_rot)
+        tw_2 = range_reg.section2Equation(sensor_img)
+        range_reg.displayResults(sensor_img, tw_2)
         
+        tw_3 = range_reg.section2Equation(sensor_img)
+        range_reg.displayResults(sensor_img, tw_3)
         
                 
     finally:
