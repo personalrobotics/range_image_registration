@@ -7,8 +7,8 @@ Created on Mon Dec 19 15:28:23 2016
 
 import openravepy
 import numpy as np
-import math
 import cv2
+from matplotlib import pyplot as plt
 
 def format_coord_gen(img):
     numrows = img.shape[0]
@@ -312,6 +312,31 @@ class RangeImageRegistration(object):
         ax.axis('off')
         plt.show()
 
+        return np.mean(np.abs(init_err.flatten())), np.mean(np.abs(err.flatten()))
+        
+    def calcError(self, sensor_image, tw_trans = np.eye(4)):
+        model_image = self.getDepthImage()
+        
+        if(tw_trans.shape == (6,1)):
+            # Converts instantaneous velocities to transform
+            trans = self.vector2Trans(tw_trans)
+        elif(tw_trans.shape == (4,4)):
+            trans = tw_trans
+        else:
+            raise ValueError('Invalid tw_trans size')
+            return
+        # Generates new image using tranform to match sensor image
+        trans_image = self.getDepthImage(trans)
+        # Extract depth data        
+        model_z = model_image[:,:,2]
+        sensor_z = sensor_image[:,:,2]
+        trans_z = trans_image[:,:,2]
+        # Compare transformed image and sensor image
+        init_err = sensor_z - model_z
+        err = sensor_z - trans_z
+        
+        return np.mean(np.abs(init_err.flatten())), np.mean(np.abs(err.flatten()))
+
     def displayImageComp(self, image_1, image_2):
         err = image_1 - image_2
         
@@ -419,14 +444,13 @@ class RangeImageRegistration(object):
     
 
 if __name__ == "__main__":
-    from matplotlib import pyplot as plt
     plt.close('all')
     try:
         # Initialize Range Image Registration with Fuze bottle
-        #object_name = 'fuze_bottle'
+        object_name = 'fuze_bottle'
         #object_name = 'pop_tarts'
         #object_name = 'glass'
-        object_name = 'kinova_tool'
+        #object_name = 'kinova_tool'
         #object_name = 'rubbermaid_ice_guard_pitcher'
 
         range_reg = RangeImageRegistration('../../pr-ordata/data/objects/'+ object_name +'.kinbody.xml')
@@ -435,8 +459,8 @@ if __name__ == "__main__":
         axis = np.array([1, 0, 0])
         angle = -np.pi/2
         T_model = openravepy.matrixFromAxisAngle(axis*angle)
-        #T_model[0:3,3] = np.array([0,-.1,0.5])
-        T_model[0:3,3] = np.array([0,-.005,0.05])
+        T_model[0:3,3] = np.array([0,-.1,0.5])
+        #T_model[0:3,3] = np.array([0,-.005,0.05])
         #T_model[0:3,3] = np.array([0,-.1,1.])
         range_reg.setTransform(T_model)
 
@@ -450,8 +474,8 @@ if __name__ == "__main__":
         #T_model = openravepy.matrixFromAxisAngle(axis*angle)
         T_model = np.eye(4)
         #t_model = np.array([-.01,0,0])
-        t_model = np.array([0,-.002,0])
-        #t_model += np.array([0,0,-.4])
+        #t_model = np.array([0,-.002,0])
+        t_model = np.array([0,0,.02])
         #t_model = np.array([-.001,0,0])
         #t_model = np.array([0,-.001,0])        
         #t_model = np.array([0,0,-.001])
